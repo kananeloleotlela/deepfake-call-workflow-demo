@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Deepfake call workflow</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Lato:wght@400;700;900&display=swap">
+<style>
+/* Layout: one column on a phone, controls left and verdict right from 860px. A sticky verdict bar follows the sliders. */
+:root {
+  --bg: #f4f5f7;
+  --panel: #ffffff;
+  --ink: #1b1d22;
+  --ink-2: #4b4f58;
+  --line: #d9dce3;
+  --accent: #8c1616;
+  --accent-ink: #ffffff;
+  --low: #2c7a3f;
+  --low-bg: #e3f1e6;
+  --med: #a86400;
+  --med-bg: #fbecd2;
+  --high: #b3261e;
+  --high-bg: #f8e1de;
+  --off: #5c6270;
+  --off-bg: #e8eaee;
+  --focus: #1c5cab;
+  --f-body: "Lato", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #15171b; --panel: #1e2126; --ink: #eceef2; --ink-2: #aeb3bf; --line: #353a43;
+    --accent: #e0605c; --accent-ink: #15171b;
+    --low: #6fcf86; --low-bg: #1f3526; --med: #f0b44c; --med-bg: #3b2f17; --high: #ff8a80; --high-bg: #40201e;
+    --off: #aeb3bf; --off-bg: #2a2e35; --focus: #86b6ef; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #15171b; --panel: #1e2126; --ink: #eceef2; --ink-2: #aeb3bf; --line: #353a43;
+  --accent: #e0605c; --accent-ink: #15171b;
+  --low: #6fcf86; --low-bg: #1f3526; --med: #f0b44c; --med-bg: #3b2f17; --high: #ff8a80; --high-bg: #40201e;
+  --off: #aeb3bf; --off-bg: #2a2e35; --focus: #86b6ef; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 16px; line-height: 1.5;
+  padding-block: 0 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); background: var(--bg); z-index: 20; }
+.wrap { max-width: 1040px; margin: 0 auto; }
+header { padding-top: 24px; padding-bottom: 8px; }
+h1 { font-size: clamp(1.7rem, 5vw, 2.4rem); font-weight: 900; margin: 0 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+h2 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.09em; color: var(--accent); margin: 0 0 12px; }
+p { margin: 0 0 8px; }
+.lede { color: var(--ink-2); max-width: 62ch; }
+.note { display: inline-block; font-size: 0.85rem; color: var(--ink-2); border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 4px 10px; margin-top: 6px; }
+
+/* sticky verdict */
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 15; background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--line); margin-top: 14px; }
+.bar-in { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.chip { font-weight: 900; letter-spacing: 0.06em; font-size: 0.95rem; padding: 6px 14px; border-radius: 6px; border: 2px solid currentColor; }
+.chip.low { color: var(--low); background: var(--low-bg); }
+.chip.medium { color: var(--med); background: var(--med-bg); }
+.chip.high { color: var(--high); background: var(--high-bg); }
+.chip.off { color: var(--off); background: var(--off-bg); }
+.bar .s { font-family: var(--f-mono); font-size: 0.95rem; color: var(--ink-2); }
+.bar .s b { color: var(--ink); font-weight: 500; }
+.bar .resp { flex: 1 1 220px; min-width: 0; font-size: 0.95rem; }
+
+.grid { display: grid; gap: 20px; margin-top: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 860px) { .grid { grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); align-items: start; } }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; }
+.panel + .panel { margin-top: 20px; }
+.stack > .panel + .panel { margin-top: 20px; }
+
+.cases { display: flex; flex-wrap: wrap; gap: 8px; }
+button.case { font: inherit; font-weight: 700; color: var(--ink); background: var(--bg); border: 1.5px solid var(--line); border-radius: 8px; padding: 10px 14px; min-height: 44px; cursor: pointer; }
+button.case[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.casenote { margin-top: 12px; color: var(--ink-2); font-size: 0.92rem; min-height: 2.8em; }
+
+fieldset { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+legend, .lab { font-weight: 700; font-size: 0.95rem; padding: 0; margin-bottom: 6px; display: block; }
+.seg { display: flex; flex-wrap: wrap; gap: 6px; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg span { display: block; padding: 9px 12px; min-height: 40px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); cursor: pointer; font-size: 0.92rem; }
+.seg input:checked + span { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); font-weight: 700; }
+.seg input:focus-visible + span { outline: 3px solid var(--focus); outline-offset: 2px; }
+.seg input:disabled + span { opacity: 0.45; cursor: not-allowed; }
+
+.slider { margin-bottom: 14px; }
+.slider .row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.slider .val { font-family: var(--f-mono); font-size: 0.95rem; }
+.slider .hint { font-size: 0.82rem; color: var(--ink-2); }
+input[type="range"] { width: 100%; height: 36px; accent-color: var(--accent); margin: 2px 0; }
+input[type="range"]:focus-visible, select:focus-visible, input[type="checkbox"]:focus-visible, button:focus-visible, summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+input[type="range"]:disabled { opacity: 0.35; }
+.slider.off { opacity: 0.55; }
+select { font: inherit; padding: 9px 10px; min-height: 42px; border: 1.5px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); max-width: 100%; }
+.checks label { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; min-height: 40px; cursor: pointer; }
+.checks input { width: 22px; height: 22px; margin-top: 1px; flex: none; accent-color: var(--accent); }
+.triage { display: inline-block; margin-top: 4px; font-size: 0.9rem; font-weight: 700; }
+details { margin-top: 4px; }
+summary { cursor: pointer; font-weight: 700; min-height: 40px; display: flex; align-items: center; }
+
+/* gauge */
+.gauge { position: relative; height: 44px; border-radius: 8px; overflow: hidden; display: flex; margin: 30px 0 6px; border: 1px solid var(--line); }
+.zone { height: 100%; }
+.zone.low { background: var(--low-bg); } .zone.medium { background: var(--med-bg); } .zone.high { background: var(--high-bg); }
+.mark { position: absolute; top: -4px; bottom: -4px; width: 3px; background: var(--ink); border-radius: 2px; transform: translateX(-50%); }
+.mark.sub { width: 2px; opacity: 0.55; top: 6px; bottom: 6px; }
+.mlab { position: absolute; top: -26px; transform: translateX(-50%); font-family: var(--f-mono); font-size: 0.78rem; white-space: nowrap; color: var(--ink); }
+.mlab.sub { color: var(--ink-2); top: auto; bottom: -22px; }
+.gauge-wrap { position: relative; padding-bottom: 22px; }
+.scale { display: flex; justify-content: space-between; font-family: var(--f-mono); font-size: 0.75rem; color: var(--ink-2); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 0.82rem; color: var(--ink-2); margin-top: 8px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 1px solid var(--line); }
+
+ul.why { margin: 0; padding-left: 20px; }
+ul.why li { margin-bottom: 6px; }
+ol.trace { list-style: none; margin: 0; padding: 0; }
+ol.trace li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+ol.trace li:first-child { border-top: 0; }
+.sid { font-family: var(--f-mono); font-size: 0.82rem; color: var(--ink-2); padding-top: 2px; }
+.stt { font-weight: 700; }
+.sd { color: var(--ink-2); font-size: 0.92rem; }
+.acted .stt::after { content: "acted"; margin-left: 8px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 6px; vertical-align: 1px; }
+.skip { opacity: 0.6; }
+.src { font-size: 0.85rem; color: var(--ink-2); margin-top: 24px; }
+.src a { color: var(--ink-2); }
+.hold { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--high-bg); color: var(--high); font-weight: 700; }
+.hold[hidden] { display: none !important; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Deepfake call workflow</h1>
+  <p class="lede">Set a call's scores and context, then follow how workflow v3 decides what happens next.</p>
+  <span class="note">Teaching demo. The scores are sliders you set, not output from a real detector.</span>
+</header>
+
+<div class="bar" aria-live="polite"><div class="bar-in" id="bar"></div></div>
+
+<div class="grid">
+  <div class="stack">
+    <section class="panel" aria-labelledby="h-case">
+      <h2 id="h-case">Start from a case</h2>
+      <div class="cases" id="cases"></div>
+      <p class="casenote" id="casenote"></p>
+    </section>
+
+    <section class="panel" aria-labelledby="h-call">
+      <h2 id="h-call">The call</h2>
+      <fieldset>
+        <legend>Where is it happening?</legend>
+        <div class="seg" id="seg-channel">
+          <label><input type="radio" name="channel" value="platform" checked><span>Conferencing platform</span></label>
+          <label><input type="radio" name="channel" value="outside"><span>Phone or WhatsApp</span></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>What does the workflow receive?</legend>
+        <div class="seg" id="seg-streams">
+          <label><input type="radio" name="streams" value="both" checked><span>Video and audio</span></label>
+          <label><input type="radio" name="streams" value="audio"><span>Audio only (dial-in)</span></label>
+          <label><input type="radio" name="streams" value="video"><span>Video only (no sound)</span></label>
+        </div>
+      </fieldset>
+
+      <div class="slider" id="sl-v">
+        <div class="row"><label class="lab" for="sv">Video score</label><span class="val" id="sv-o"></span></div>
+        <input type="range" id="sv" min="0" max="1" step="0.01" value="0.10">
+        <div class="hint">0 looks real, 1 looks fake. What the video detector reports.</div>
+      </div>
+      <div class="slider" id="sl-a">
+        <div class="row"><label class="lab" for="sa">Audio score</label><span class="val" id="sa-o"></span></div>
+        <input type="range" id="sa" min="0" max="1" step="0.01" value="0.12">
+        <div class="hint">0 sounds real, 1 sounds fake. What the audio detector reports.</div>
+      </div>
+
+      <fieldset>
+        <legend>Video quality</legend>
+        <div class="seg" id="seg-qv">
+          <label><input type="radio" name="qv" value="1" checked><span>Good</span></label>
+          <label><input type="radio" name="qv" value="0.6"><span>Fair</span></label>
+          <label><input type="radio" name="qv" value="0.25"><span>Poor</span></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Audio quality</legend>
+        <div class="seg" id="seg-qa">
+          <label><input type="radio" name="qa" value="1" checked><span>Good</span></label>
+          <label><input type="radio" name="qa" value="0.6"><span>Fair</span></label>
+          <label><input type="radio" name="qa" value="0.25"><span>Poor</span></label>
+        </div>
+      </fieldset>
+
+      <div>
+        <label class="lab" for="rule">How the two scores are combined</label>
+        <select id="rule">
+          <option value="average">Average</option>
+          <option value="maximum">Maximum</option>
+          <option value="weighted">Weighted by stream quality</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="panel" aria-labelledby="h-ctx">
+      <h2 id="h-ctx">Context for triage</h2>
+      <div class="checks" id="checks"></div>
+      <span class="triage" id="triage"></span>
+      <details>
+        <summary>Cut-offs used in this demo</summary>
+        <p class="hint" style="color:var(--ink-2);font-size:.88rem">Demo values. In the study, the cut-offs are set from the scores of real calls: medium above the 90th percentile, high above the 99th.</p>
+        <div class="slider"><div class="row"><label class="lab" for="tm">Medium cut-off</label><span class="val" id="tm-o"></span></div><input type="range" id="tm" min="0.05" max="0.95" step="0.01" value="0.40"></div>
+        <div class="slider"><div class="row"><label class="lab" for="th">High cut-off</label><span class="val" id="th-o"></span></div><input type="range" id="th" min="0.05" max="0.99" step="0.01" value="0.70"></div>
+        <div class="slider"><div class="row"><label class="lab" for="dl">Disagreement margin</label><span class="val" id="dl-o"></span></div><input type="range" id="dl" min="0.05" max="0.95" step="0.01" value="0.30"></div>
+      </details>
+    </section>
+  </div>
+
+  <div class="stack">
+    <section class="panel" aria-labelledby="h-res">
+      <h2 id="h-res">Combined score</h2>
+      <div id="gauge"></div>
+      <div id="why"></div>
+      <div class="hold" id="hold" hidden></div>
+    </section>
+    <section class="panel" aria-labelledby="h-tr">
+      <h2 id="h-tr">Stage by stage</h2>
+      <ol class="trace" id="trace"></ol>
+    </section>
+  </div>
+</div>
+
+<p class="src">Reported details come from press and company accounts:
+  <a href="https://edition.cnn.com/2024/05/16/tech/arup-deepfake-scam-loss-hong-kong-intl-hnk">CNN on Arup</a>,
+  <a href="https://www.pressreader.com/uk/the-guardian/20240511/282282440392288">The Guardian on WPP</a>,
+  <a href="https://fortune.com/2024/07/27/ferrari-deepfake-attempt-scammer-security-question-ceo-benedetto-vigna-cybersecurity-ai">Fortune on Ferrari</a>,
+  <a href="https://blog.lastpass.com/posts/attempted-audio-deepfake-call-targets-lastpass-employee">LastPass blog</a>.
+  The scores for each case are assumed for illustration. Research by Innocent K. R. Leotlela, University of Pretoria, supervised by Prof. Jan Eloff.</p>
+</div>
+
+<script>
+(function () {
+  var FACTORS = [
+    ["money", "Asks for a payment, credentials or sensitive data"],
+    ["urgency", "Pushes secrecy or urgency"],
+    ["organiser", "Meeting set up by an unverified or external account"],
+    ["context", "Unusual context before the call, such as a related email or message"]
+  ];
+  var CASES = [
+    { id: "routine", name: "Routine call", note: "A normal internal call with no warning signs. Scores are low and nothing in the context stands out.",
+      s: { channel: "platform", streams: "both", sv: 0.10, sa: 0.12, qv: "1", qa: "1", rule: "average", f: [] } },
+    { id: "arup", name: "Arup-style", note: "Reported: a video call with a fake CFO and colleagues led a finance worker to make 15 transfers worth HK$200 million, after an unusual email. Here the detectors are assumed to miss most of the fake.",
+      s: { channel: "platform", streams: "both", sv: 0.28, sa: 0.32, qv: "0.6", qa: "1", rule: "average", f: ["money", "urgency", "context"] } },
+    { id: "wpp", name: "WPP-style", note: "Reported: a Teams meeting set up from a spoofed WhatsApp account, using a cloned voice and existing footage of the CEO. Here the video is assumed to be real footage and the voice fake.",
+      s: { channel: "platform", streams: "both", sv: 0.10, sa: 0.85, qv: "1", qa: "1", rule: "average", f: ["money", "organiser"] } },
+    { id: "ferrari", name: "Ferrari-style", note: "Reported: WhatsApp messages from an unfamiliar number, then a call with a cloned voice. An executive asked a personal question and the caller hung up.",
+      s: { channel: "outside", streams: "audio", sv: 0.10, sa: 0.60, qv: "1", qa: "1", rule: "average", f: ["urgency", "organiser"] } },
+    { id: "lastpass", name: "LastPass-style", note: "Reported: WhatsApp calls, texts and a voicemail using a cloned CEO voice, with forced urgency. The employee ignored them and reported it.",
+      s: { channel: "outside", streams: "audio", sv: 0.10, sa: 0.60, qv: "1", qa: "1", rule: "average", f: ["urgency", "organiser"] } }
+  ];
+  var st = { channel: "platform", streams: "both", sv: 0.10, sa: 0.12, qv: "1", qa: "1", rule: "average", f: [], tm: 0.40, th: 0.70, dl: 0.30 };
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (x) { return x.toFixed(2); };
+  var QN = { "1": "good", "0.6": "fair", "0.25": "poor" };
+
+  // build case buttons and context checks
+  var cases = $("cases");
+  CASES.forEach(function (c) {
+    var b = document.createElement("button"); b.type = "button"; b.className = "case"; b.textContent = c.name; b.id = "case-" + c.id;
+    b.setAttribute("aria-pressed", "false"); b.addEventListener("click", function () { applyCase(c); }); cases.appendChild(b);
+  });
+  var checks = $("checks");
+  FACTORS.forEach(function (f) {
+    var l = document.createElement("label"); var i = document.createElement("input"); i.type = "checkbox"; i.id = "f-" + f[0]; i.value = f[0];
+    i.addEventListener("change", function () { st.f = FACTORS.map(function (x) { return x[0]; }).filter(function (k) { return $("f-" + k).checked; }); clearCase(); render(); });
+    var s = document.createElement("span"); s.textContent = f[1]; l.appendChild(i); l.appendChild(s); checks.appendChild(l);
+  });
+
+  function setRadio(name, v) { var r = document.querySelector('input[name="' + name + '"][value="' + v + '"]'); if (r) r.checked = true; }
+  function clearCase() { CASES.forEach(function (c) { $("case-" + c.id).setAttribute("aria-pressed", "false"); }); $("casenote").textContent = ""; }
+  function applyCase(c) {
+    var s = c.s; st.channel = s.channel; st.streams = s.streams; st.sv = s.sv; st.sa = s.sa; st.qv = s.qv; st.qa = s.qa; st.rule = s.rule; st.f = s.f.slice();
+    setRadio("channel", s.channel); setRadio("streams", s.streams); setRadio("qv", s.qv); setRadio("qa", s.qa);
+    $("sv").value = s.sv; $("sa").value = s.sa; $("rule").value = s.rule;
+    FACTORS.forEach(function (f) { $("f-" + f[0]).checked = s.f.indexOf(f[0]) >= 0; });
+    CASES.forEach(function (x) { $("case-" + x.id).setAttribute("aria-pressed", x.id === c.id ? "true" : "false"); });
+    $("casenote").textContent = c.note; render();
+  }
+
+  ["channel", "streams", "qv", "qa"].forEach(function (n) {
+    Array.prototype.forEach.call(document.getElementsByName(n), function (r) { r.addEventListener("change", function () { st[n] = r.value; clearCase(); render(); }); });
+  });
+  [["sv", "sv"], ["sa", "sa"], ["tm", "tm"], ["th", "th"], ["dl", "dl"]].forEach(function (p) {
+    $(p[0]).addEventListener("input", function () { st[p[1]] = parseFloat($(p[0]).value); if (p[0] === "sv" || p[0] === "sa") clearCase(); render(); });
+  });
+  $("rule").addEventListener("change", function () { st.rule = $("rule").value; clearCase(); render(); });
+
+  function compute() {
+    var r = {}; var n = st.f.length;
+    r.triage = n >= 3 || (n === 2 && st.f.indexOf("money") >= 0) ? "high" : (n >= 1 ? "medium" : "low");
+    if (n >= 2 && st.f.indexOf("money") < 0) r.triage = n >= 3 ? "high" : "medium";
+    r.adj = r.triage === "high" ? 0.20 : (r.triage === "medium" ? 0.10 : 0);
+    r.tm = Math.max(0.03, st.tm - r.adj); r.th = Math.max(r.tm + 0.02, st.th - r.adj);
+    r.outside = st.channel === "outside";
+    var uv = st.streams !== "audio", ua = st.streams !== "video"; r.uv = uv; r.ua = ua;
+    var qv = parseFloat(st.qv), qa = parseFloat(st.qa);
+    if (uv && ua) {
+      if (st.rule === "average") r.S = (st.sv + st.sa) / 2;
+      else if (st.rule === "maximum") r.S = Math.max(st.sv, st.sa);
+      else r.S = (qv * st.sv + qa * st.sa) / (qv + qa);
+    } else r.S = uv ? st.sv : st.sa;
+    r.tier = r.S > r.th ? "high" : (r.S > r.tm ? "medium" : "low"); r.base = r.tier; r.reasons = [];
+    r.gap = Math.abs(st.sv - st.sa); r.dis = false; r.gate = [];
+    if (uv && ua && r.tier === "low" && r.gap > st.dl) { r.tier = "medium"; r.dis = true; }
+    if (r.tier === "low") {
+      if (uv && qv < 0.5) r.gate.push("video");
+      if (ua && qa < 0.5) r.gate.push("audio");
+      if (r.gate.length) r.tier = "medium";
+    }
+    r.hold = st.f.indexOf("money") >= 0 && r.triage === "high";
+    return r;
+  }
+
+  var RESP = {
+    low: "5a. The call goes ahead and is logged.",
+    medium: "5b. A silent alert goes to the security team. An analyst reviews it within the agreed time.",
+    high: "5c. The host gets an in-call alert. Verify out of band, for example by calling the person back on a known number, before anything is approved."
+  };
+  var OUT_MSG = "Outside the workflow's reach. There is no conferencing stream to score. Rely on a challenge question only the real person can answer, call back on a known number, and report it to security.";
+
+  function pct(x) { return Math.max(0, Math.min(100, x * 100)) + "%"; }
+
+  function render() {
+    var r = compute();
+    $("sv-o").textContent = fmt(st.sv); $("sa-o").textContent = fmt(st.sa);
+    $("tm-o").textContent = fmt(st.tm); $("th-o").textContent = fmt(st.th); $("dl-o").textContent = fmt(st.dl);
+    // availability
+    var out = r.outside;
+    $("sl-v").className = "slider" + (r.uv && !out ? "" : " off"); $("sl-a").className = "slider" + (r.ua && !out ? "" : " off");
+    $("sv").disabled = !r.uv || out; $("sa").disabled = !r.ua || out;
+    Array.prototype.forEach.call(document.getElementsByName("qv"), function (x) { x.disabled = !r.uv || out; });
+    Array.prototype.forEach.call(document.getElementsByName("qa"), function (x) { x.disabled = !r.ua || out; });
+    Array.prototype.forEach.call(document.getElementsByName("streams"), function (x) { x.disabled = out; });
+    $("rule").disabled = out || !(r.uv && r.ua);
+    var tl = { low: "Triage: low", medium: "Triage: medium", high: "Triage: high" }[r.triage];
+    $("triage").textContent = tl + (r.adj ? " (cut-offs lowered by " + fmt(r.adj) + ")" : "");
+
+    // verdict bar
+    var bar = $("bar");
+    if (out) {
+      bar.innerHTML = '<span class="chip off">OUT OF SCOPE</span><span class="resp">' + OUT_MSG + '</span>';
+    } else {
+      bar.innerHTML = '<span class="chip ' + r.tier + '">' + r.tier.toUpperCase() + ' RISK</span><span class="s">combined score <b>' + fmt(r.S) + '</b></span><span class="resp">' + RESP[r.tier] + '</span>';
+    }
+
+    // gauge
+    var g = $("gauge");
+    if (out) {
+      g.innerHTML = '<p>No score is produced for a call outside a conferencing platform, so the cut-offs do not apply.</p>';
+      $("why").innerHTML = ""; $("hold").hidden = true;
+    } else {
+      var html = '<div class="gauge-wrap"><div class="gauge" role="img" aria-label="Combined score ' + fmt(r.S) + ' against the medium cut-off ' + fmt(r.tm) + ' and the high cut-off ' + fmt(r.th) + '">' +
+        '<div class="zone low" style="width:' + pct(r.tm) + '"></div><div class="zone medium" style="width:' + pct(r.th - r.tm) + '"></div><div class="zone high" style="width:' + pct(1 - r.th) + '"></div>';
+      if (r.uv && r.ua) {
+        html += '<div class="mark sub" style="left:' + pct(st.sv) + '"><span class="mlab sub">Sv</span></div><div class="mark sub" style="left:' + pct(st.sa) + '"><span class="mlab sub">Sa</span></div>';
+      }
+      html += '<div class="mark" style="left:' + pct(r.S) + '"><span class="mlab">S ' + fmt(r.S) + '</span></div></div></div>' +
+        '<div class="scale"><span>0</span><span>medium above ' + fmt(r.tm) + '</span><span>high above ' + fmt(r.th) + '</span><span>1</span></div>' +
+        '<div class="legend"><span><i style="background:var(--low-bg)"></i>low</span><span><i style="background:var(--med-bg)"></i>medium</span><span><i style="background:var(--high-bg)"></i>high</span></div>';
+      g.innerHTML = html;
+      var why = [];
+      var how = !(r.uv && r.ua) ? "the " + (r.uv ? "video" : "audio") + " score on its own" : (st.rule === "average" ? "the average of the two scores" : st.rule === "maximum" ? "the larger of the two scores" : "the two scores weighted by stream quality");
+      why.push("The combined score is " + fmt(r.S) + ", " + how + ".");
+      if (r.adj) why.push("Triage is " + r.triage + ", so the cut-offs are lowered from " + fmt(st.tm) + " and " + fmt(st.th) + " to " + fmt(r.tm) + " and " + fmt(r.th) + ".");
+      why.push(r.base === "high" ? "The score is above the high cut-off." : r.base === "medium" ? "The score is above the medium cut-off." : "The score is at or below the medium cut-off.");
+      if (r.dis) why.push("The video and audio scores differ by " + fmt(r.gap) + ", more than the margin " + fmt(st.dl) + ", so the call is raised to medium.");
+      else if (r.uv && r.ua && r.gap > st.dl) why.push("The scores differ by " + fmt(r.gap) + ", more than the margin, but the call is already at " + r.base + " or higher.");
+      if (r.gate.length) why.push("The " + r.gate.join(" and ") + " quality is poor, so a low score cannot clear the call. It is raised to medium.");
+      if (!(r.uv && r.ua)) why.push("With one stream the call uses that stream's own score and cut-offs.");
+      $("why").innerHTML = '<ul class="why">' + why.map(function (w) { return "<li>" + w + "</li>"; }).join("") + "</ul>";
+      var h = $("hold");
+      if (r.hold) { h.hidden = false; h.textContent = "Payment or credential request with high triage: hold it until a second approver confirms, whatever the tier."; } else h.hidden = true;
+    }
+
+    // stage trace
+    var T = [];
+    var orgUnv = st.f.indexOf("organiser") >= 0;
+    T.push(["1", "Call starts", orgUnv ? "The organiser account is unverified or external, so it is flagged." : "Organiser and invitees match the directory.", orgUnv]);
+    T.push(["2a", "Risk triage", r.triage === "low" ? "No warning signs in the context." : st.f.length + " warning sign" + (st.f.length > 1 ? "s" : "") + ": triage is " + r.triage + ".", r.triage !== "low"]);
+    if (out) {
+      T.push(["2b-d", "Pre-processing", "Nothing to process. The call is not on a conferencing platform.", false]);
+      T.push(["3", "Detection and scoring", "No streams reach the workflow.", false]);
+      T.push(["4", "Risk scoring", "Not applicable.", false]);
+      T.push(["5", "Response", "Manual controls only: challenge question, call-back on a known number, report to security.", true]);
+    } else {
+      T.push(["2b-d", "Pre-processing", "Streams separated. Video quality " + (r.uv ? QN[st.qv] : "n/a") + ", audio quality " + (r.ua ? QN[st.qa] : "n/a") + ".", r.gate.length > 0]);
+      T.push(["3", "Detection and scoring", "Combined score " + fmt(r.S) + (r.dis ? "; disagreement rule fired" : "") + ".", true]);
+      T.push(["4", "Risk scoring", r.tier.charAt(0).toUpperCase() + r.tier.slice(1) + " risk.", true]);
+      T.push(["5", "Response", RESP[r.tier].slice(4) + (r.hold ? " Payment held for a second approver." : ""), true]);
+    }
+    T.push(["6", "Post-call response and audit", (!out && r.tier === "low") ? "The call is logged." : "Evidence is preserved and the incident is reviewed.", false]);
+    T.push(["7", "Continuous improvement", "The outcome feeds the next check of cut-offs and policy.", false]);
+    $("trace").innerHTML = T.map(function (x) {
+      return '<li class="' + (x[3] ? "acted" : "") + '"><span class="sid">' + x[0] + '</span><div><div class="stt">' + x[1] + '</div><div class="sd">' + x[2] + "</div></div></li>";
+    }).join("");
+  }
+  applyCase(CASES[1]);
+})();
+</script>
+
+</body>
+</html>
